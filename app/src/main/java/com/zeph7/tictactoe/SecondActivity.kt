@@ -1,154 +1,54 @@
 package com.zeph7.tictactoe
 
-import android.content.Context
 import android.content.Intent
 import android.support.v7.app.AppCompatActivity
 import android.os.Bundle
 import android.view.Window
 import android.view.WindowManager
 import android.view.animation.AnimationUtils
-import kotlinx.android.synthetic.main.activity_third.*
-import java.text.FieldPosition
-import java.util.*
+import io.socket.client.Socket
+import kotlinx.android.synthetic.main.activity_second.*
+import org.json.JSONObject
 import kotlin.collections.ArrayList
 
 class SecondActivity : AppCompatActivity() {
+    private lateinit var socketManager: SocketManager
+    private var board = arrayListOf("", "", "", "", "", "", "", "", "")
+    private var isPlayerTurn = true // Assuming the player starts first
+    private var isSinglePlayer = true // Assuming single player mode
+    private var gameId: String? = null // Store the gameId
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.requestFeature(Window.FEATURE_NO_TITLE)
-        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN)
         setContentView(R.layout.activity_second)
+
+        // Initialize SocketManager
+        socketManager = SocketManager()
+        socketManager.initSocket()
+
+        setupSocketEvents()
 
         val anim = AnimationUtils.loadAnimation(applicationContext, R.anim.move)
         imageViewGameOn.startAnimation(anim)
 
-        var board = arrayListOf<String>("", "", "", "", "", "", "", "", "")
+        button0.setOnClickListener { onPlayerMove(0) }
+        button1.setOnClickListener { onPlayerMove(1) }
+        button2.setOnClickListener { onPlayerMove(2) }
+        button3.setOnClickListener { onPlayerMove(3) }
+        button4.setOnClickListener { onPlayerMove(4) }
+        button5.setOnClickListener { onPlayerMove(5) }
+        button6.setOnClickListener { onPlayerMove(6) }
+        button7.setOnClickListener { onPlayerMove(7) }
+        button8.setOnClickListener { onPlayerMove(8) }
 
-        button0.setOnClickListener {
-            if (board[0] == "") {
-                button0.text = "X"
-                board[0] = "X"
-                if(!isBoardFull(board) && !result(board, "X")) {
-                    val position = getComputerMove(board)
-                    board[position] = "O"
-                    displayComputerButton(position)
-                }
-            }
-            resultOut(board)
-        }
-
-        button1.setOnClickListener {
-            if (board[1] == "") {
-                button1.text = "X"
-                board[1] = "X"
-                if(!isBoardFull(board) && !result(board, "X")) {
-                    val position = getComputerMove(board)
-                    board[position] = "O"
-                    displayComputerButton(position)
-                }
-            }
-            resultOut(board)
-        }
-
-        button2.setOnClickListener {
-            if (board[2] == "") {
-                button2.text = "X"
-                board[2] = "X"
-                if(!isBoardFull(board) && !result(board, "X")) {
-                    val position = getComputerMove(board)
-                    board[position] = "O"
-                    displayComputerButton(position)
-                }
-            }
-            resultOut(board)
-        }
-
-        button3.setOnClickListener {
-            if (board[3] == "") {
-                button3.text = "X"
-                board[3] = "X"
-                if(!isBoardFull(board) && !result(board, "X")) {
-                    val position = getComputerMove(board)
-                    board[position] = "O"
-                    displayComputerButton(position)
-                }
-            }
-            resultOut(board)
-        }
-
-        button4.setOnClickListener {
-            if (board[4] == "") {
-                button4.text = "X"
-                board[4] = "X"
-                if(!isBoardFull(board) && !result(board, "X")) {
-                    val position = getComputerMove(board)
-                    board[position] = "O"
-                    displayComputerButton(position)
-                }
-            }
-            resultOut(board)
-        }
-
-        button5.setOnClickListener {
-            if (board[5] == "") {
-                button5.text = "X"
-                board[5] = "X"
-                if(!isBoardFull(board) && !result(board, "X")) {
-                    val position = getComputerMove(board)
-                    board[position] = "O"
-                    displayComputerButton(position)
-                }
-            }
-            resultOut(board)
-        }
-
-        button6.setOnClickListener {
-            if (board[6] == "") {
-                button6.text = "X"
-                board[6] = "X"
-                if(!isBoardFull(board) && !result(board, "X")) {
-                    val position = getComputerMove(board)
-                    board[position] = "O"
-                    displayComputerButton(position)
-                }
-            }
-            resultOut(board)
-        }
-
-        button7.setOnClickListener {
-            if (board[7] == "") {
-                button7.text = "X"
-                board[7] = "X"
-                if(!isBoardFull(board) && !result(board, "X")) {
-                    val position = getComputerMove(board)
-                    board[position] = "O"
-                    displayComputerButton(position)
-                }
-            }
-            resultOut(board)
-        }
-
-        button8.setOnClickListener {
-            if (board[8] == "") {
-                button8.text = "X"
-                board[8] = "X"
-                if(!isBoardFull(board) && !result(board, "X")) {
-                    val position = getComputerMove(board)
-                    board[position] = "O"
-                    displayComputerButton(position)
-                }
-            }
-            resultOut(board)
-        }
-
-        buttonReset.setOnClickListener{
+        buttonReset.setOnClickListener {
             startActivity(Intent(this@SecondActivity, SecondActivity::class.java))
         }
 
         // back ImageView
-        imageViewBack.setOnClickListener{
+        imageViewBack.setOnClickListener {
             startActivity(Intent(this@SecondActivity, MainActivity::class.java))
         }
 
@@ -158,105 +58,175 @@ class SecondActivity : AppCompatActivity() {
             moveTaskToBack(true)   //to quit app
         }
 
+        // Notify backend of single player mode
+        socketManager.socket.on(Socket.EVENT_CONNECT) {
+            val userId = socketManager.getUserId()
+            val data = JSONObject()
+            data.put("mode", "single")
+            data.put("userId", userId)
+            socketManager.socket.emit("createGame", data)
+        }
+
+        socketManager.socket.on("gameCreated") { args ->
+            val data = args[0] as JSONObject
+            gameId = data.getString("id")
+        }
+    }
+
+    private fun setupSocketEvents() {
+        socketManager.socket.on("gameUpdate") { args ->
+            val data = args[0] as JSONObject
+            val position = data.getInt("position")
+            val symbol = data.getString("symbol")
+            runOnUiThread {
+                board[position] = symbol
+                displaySymbolOnButton(position, symbol)
+                resultOut(board)
+                isPlayerTurn = true // It's the player's turn after receiving an update
+            }
+        }
+
+        socketManager.socket.on("gameOver") { args ->
+            val data = args[0] as JSONObject
+            val winner = data.getString("winner")
+            runOnUiThread {
+                if (winner == "tie") {
+                    startActivity(Intent(this@SecondActivity, WonActivity::class.java).putExtra("player", "Tie"))
+                } else {
+                    startActivity(Intent(this@SecondActivity, WonActivity::class.java).putExtra("player", winner))
+                }
+            }
+        }
+    }
+
+    private fun onPlayerMove(position: Int) {
+        if (board[position] == "" && isPlayerTurn) {
+            board[position] = "X"
+            displaySymbolOnButton(position, "X")
+            resultOut(board)
+            isPlayerTurn = false // Wait for the opponent's move
+
+            if (isSinglePlayer) {
+                // Handle computer move for single player mode
+                if (!result(board, "X") && !isBoardFull(board)) {
+                    val computerMove = getComputerMove(board)
+                    board[computerMove] = "O"
+                    displaySymbolOnButton(computerMove, "O")
+                    resultOut(board)
+                    isPlayerTurn = true // It's player's turn again after computer moves
+                }
+            } else {
+                emitPlayerMove(position)
+            }
+        }
+    }
+
+    private fun emitPlayerMove(position: Int) {
+        val data = JSONObject()
+        data.put("position", position)
+        data.put("symbol", "X")
+        data.put("gameId", gameId) // Include gameId
+        socketManager.socket.emit("playerMove", data)
     }
 
     private fun getComputerMove(board: ArrayList<String>): Int {
-
-        //check if computer can win in this move
-        for (i in 0..board.count()-1){
-            var copy: ArrayList<String> = getBoardCopy(board)
-            if(copy[i] == "") copy[i] = "O"
-            if(result(copy, "O")) return i
+        // Implement computer move logic here
+        for (i in board.indices) {
+            val copy = getBoardCopy(board)
+            if (copy[i] == "") {
+                copy[i] = "O"
+                if (result(copy, "O")) return i
+            }
         }
-
-        //check if player could win in the next move
-        for (i in 0..board.count()-1){
-            var copy2 = getBoardCopy(board)
-            if(copy2[i] == "") copy2[i] = "X"
-            if(result(copy2, "X")) return i
+        for (i in board.indices) {
+            val copy = getBoardCopy(board)
+            if (copy[i] == "") {
+                copy[i] = "X"
+                if (result(copy, "X")) return i
+            }
         }
-
-        //try to take corners if its free
-        var move = choseRandomMove(board, arrayListOf<Int>(0, 2, 6, 8))
-        if(move != -1)
-            return move
-
-        //try to take center if its free
-        if(board[4] == "") return 4
-
-        //move on one of the sides
-        return choseRandomMove(board, arrayListOf<Int>(1, 3, 5, 7))
+        val move = chooseRandomMove(board, arrayListOf(0, 2, 6, 8))
+        if (move != -1) return move
+        if (board[4] == "") return 4
+        return chooseRandomMove(board, arrayListOf(1, 3, 5, 7))
     }
 
-
-    private fun choseRandomMove(board: ArrayList<String>, list: ArrayList<Int>): Int {
-        var possibleMoves = arrayListOf<Int>()
-        for (i in list){
-            if(board[i] == "") possibleMoves.add(i)
+    private fun chooseRandomMove(board: ArrayList<String>, list: ArrayList<Int>): Int {
+        val possibleMoves = arrayListOf<Int>()
+        for (i in list) {
+            if (board[i] == "") possibleMoves.add(i)
         }
-        if(possibleMoves.isEmpty()) return -1
-        else {
-            var index = Random().nextInt(possibleMoves.count())
-            return possibleMoves[index]
+        return if (possibleMoves.isEmpty()) -1 else possibleMoves.random()
+    }
+
+    private fun displaySymbolOnButton(position: Int, symbol: String) {
+        when (position) {
+            0 -> button0.text = symbol
+            1 -> button1.text = symbol
+            2 -> button2.text = symbol
+            3 -> button3.text = symbol
+            4 -> button4.text = symbol
+            5 -> button5.text = symbol
+            6 -> button6.text = symbol
+            7 -> button7.text = symbol
+            8 -> button8.text = symbol
         }
     }
 
     private fun getBoardCopy(board: ArrayList<String>): ArrayList<String> {
-        var bd = arrayListOf<String>("", "", "", "", "", "", "", "", "")
-        for (i in 0..board.count()-1) {
-            bd[i] = board[i]
-        }
-        return bd
+        return ArrayList(board)
     }
 
     private fun isBoardFull(board: ArrayList<String>): Boolean {
-        for (i in board)
-            if(i != "X" && i != "O") return false
-        return true
+        return !board.contains("")
     }
 
-
-    private fun resultOut(board: ArrayList<String>){
-        if(result(board, "X")){
-            startActivity(Intent(this@SecondActivity, WonActivity::class.java).putExtra("player", "YOU"))
-        }else if(result(board, "O")){
-            startActivity(Intent(this@SecondActivity, WonActivity::class.java).putExtra("player", "COMPUTER"))
-        }
-        if(isBoardFull(board)){
-            startActivity(Intent(this@SecondActivity, WonActivity::class.java).putExtra("player", "Tie"))
+    private fun resultOut(board: ArrayList<String>) {
+        when {
+            result(board, "X") -> {
+                val data = JSONObject()
+                data.put("winner", "YOU")
+                data.put("userId", socketManager.getUserId())
+                data.put("gameId", gameId) // Include gameId
+                socketManager.socket.emit("gameOver", data)
+                startActivity(Intent(this@SecondActivity, WonActivity::class.java).putExtra("player", "YOU"))
+            }
+            result(board, "O") -> {
+                val data = JSONObject()
+                data.put("winner", "COMPUTER")
+                data.put("userId", socketManager.getUserId())
+                data.put("gameId", gameId) // Include gameId
+                socketManager.socket.emit("gameOver", data)
+                startActivity(Intent(this@SecondActivity, WonActivity::class.java).putExtra("player", "COMPUTER"))
+            }
+            isBoardFull(board) -> {
+                val data = JSONObject()
+                data.put("winner", "tie")
+                data.put("userId", socketManager.getUserId())
+                data.put("gameId", gameId) // Include gameId
+                socketManager.socket.emit("gameOver", data)
+                startActivity(Intent(this@SecondActivity, WonActivity::class.java).putExtra("player", "Tie"))
+            }
         }
     }
-
 
     private fun result(bd: ArrayList<String>, s: String): Boolean =
-        if(bd[0] == s && bd[1] == s && bd[2] == s) true
-        else if(bd[3] == s && bd[4] == s && bd[5] == s) true
-        else if(bd[6] == s && bd[7] == s && bd[8] == s) true
-        else if(bd[0] == s && bd[3] == s && bd[6] == s) true
-        else if(bd[1] == s && bd[4] == s && bd[7] == s) true
-        else if(bd[2] == s && bd[5] == s && bd[8] == s) true
-        else if(bd[0] == s && bd[4] == s && bd[8] == s) true
-        else if(bd[2] == s && bd[4] == s && bd[6] == s) true
-        else false
+        (bd[0] == s && bd[1] == s && bd[2] == s) ||
+                (bd[3] == s && bd[4] == s && bd[5] == s) ||
+                (bd[6] == s && bd[7] == s && bd[8] == s) ||
+                (bd[0] == s && bd[3] == s && bd[6] == s) ||
+                (bd[1] == s && bd[4] == s && bd[7] == s) ||
+                (bd[2] == s && bd[5] == s && bd[8] == s) ||
+                (bd[0] == s && bd[4] == s && bd[8] == s) ||
+                (bd[2] == s && bd[4] == s && bd[6] == s)
 
-
-    private fun displayComputerButton(position: Int){
-        if(position == 0) button0.text = "O"
-        else if(position == 1) button1.text = "O"
-        else if(position == 2) button2.text = "O"
-        else if(position == 3) button3.text = "O"
-        else if(position == 4) button4.text = "O"
-        else if(position == 5) button5.text = "O"
-        else if(position == 6) button6.text = "O"
-        else if(position == 7) button7.text = "O"
-        else if(position == 8) button8.text = "O"
-    }
-
-
-    // for handling back buttton of the Android Device
     override fun onBackPressed() {
         super.onBackPressed()
         startActivity(Intent(this@SecondActivity, MainActivity::class.java))
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        socketManager.disconnect()
+    }
 }
