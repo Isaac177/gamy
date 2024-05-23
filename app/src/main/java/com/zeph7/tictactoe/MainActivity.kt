@@ -1,13 +1,13 @@
 package com.zeph7.tictactoe
 
 import android.content.Intent
-import android.support.v7.app.AlertDialog
-import android.support.v7.app.AppCompatActivity
 import android.os.Bundle
+import android.support.v7.app.AlertDialog
 import android.util.Log
 import android.view.Window
 import android.view.WindowManager
 import android.view.animation.AnimationUtils
+import android.support.v7.app.AppCompatActivity
 import kotlinx.android.synthetic.main.activity_main.*
 import org.json.JSONObject
 
@@ -27,6 +27,7 @@ class MainActivity : AppCompatActivity() {
         // Initialize SocketManager
         socketManager = SocketManager.getInstance()
         Log.d(TAG, "SocketManager initialized")
+        setupSocketEvents()
 
         val animZoom2 = AnimationUtils.loadAnimation(applicationContext, R.anim.zoom2)
         val animBlink = AnimationUtils.loadAnimation(applicationContext, R.anim.blink)
@@ -59,39 +60,47 @@ class MainActivity : AppCompatActivity() {
             finish()
             moveTaskToBack(true)
         }
-
-        // Handle game invitations
-        handleGameInvitations()
     }
 
-    private fun handleGameInvitations() {
-        socketManager.socket.on("gameInvitation") { args ->
-            val data = args[0] as JSONObject
-            val gameId = data.getInt("gameId")
-            val inviter = data.getString("inviter")
+    private fun setupSocketEvents() {
+        Log.d(TAG, "Setting up socket events")
 
+        socketManager.socket.on("invitationReceived") { args ->
+            val data = args[0] as JSONObject
+            val gameId = data.getString("gameId")
+            val senderId = data.getString("senderId")
+            Log.d(TAG, "Invitation received from: $senderId for gameId: $gameId")
+
+            // Handle the invitation (e.g., show a dialog to accept or decline)
             runOnUiThread {
-                showGameInvitationDialog(gameId, inviter)
+                showInvitationDialog(gameId, senderId)
             }
         }
     }
 
-    private fun showGameInvitationDialog(gameId: Int, inviter: String) {
-        val dialog = AlertDialog.Builder(this)
+    private fun showInvitationDialog(gameId: String, inviter: String) {
+        AlertDialog.Builder(this)
             .setTitle("Game Invitation")
-            .setMessage("You have been invited to join a game by $inviter. Do you want to join?")
-            .setPositiveButton("Join") { _, _ ->
+            .setMessage("You have been invited to a game by $inviter")
+            .setPositiveButton("Accept") { _, _ ->
                 joinGame(gameId)
             }
-            .setNegativeButton("Cancel", null)
-            .create()
-        dialog.show()
+            .setNegativeButton("Decline", null)
+            .show()
     }
 
-    private fun joinGame(gameId: Int) {
-        val intent = Intent(this@MainActivity, ThirdActivity::class.java)
-        intent.putExtra("isMultiplayer", true) // Pass the multiplayer flag
-        intent.putExtra("gameId", gameId.toString()) // Pass the game ID
+    private fun joinGame(gameId: String) {
+        val joinData = JSONObject().apply {
+            put("gameId", gameId)
+            put("userId", socketManager.socket.id())
+        }
+        socketManager.socket.emit("joinGame", joinData)
+        Log.d(TAG, "Joining game with id: $gameId")
+
+        // Start ThirdActivity and pass the gameId
+        val intent = Intent(this, ThirdActivity::class.java)
+        intent.putExtra("gameId", gameId)
+        intent.putExtra("isMultiplayer", true)
         startActivity(intent)
     }
 
@@ -102,12 +111,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        try {
-            socketManager.disconnect()
-            Log.d(TAG, "SocketManager disconnected")
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception disconnecting SocketManager: ${e.message}")
-            e.printStackTrace()
-        }
+        socketManager.disconnect()
+        Log.d(TAG, "SocketManager disconnected")
     }
 }

@@ -5,7 +5,7 @@ import io.socket.client.IO
 import io.socket.client.Socket
 import java.net.URISyntaxException
 
-class SocketManager() {
+class SocketManager private constructor() {
     lateinit var socket: Socket
 
     companion object {
@@ -30,12 +30,11 @@ class SocketManager() {
         }
     }
 
-    fun initSocket() {
+    private fun initSocket() {
         try {
             val opts = IO.Options()
             opts.transports = arrayOf("websocket", "polling")
-            //socket = IO.socket("https://multiplayer-game-api.fly.dev/", opts)
-            socket = IO.socket("http://10.0.2.2:8000")
+            socket = IO.socket("https://multiplayer-game-api.fly.dev/", opts)
             socket.connect()
             setupSocketEvents()
             Log.d(TAG, "Socket initialized and connecting...")

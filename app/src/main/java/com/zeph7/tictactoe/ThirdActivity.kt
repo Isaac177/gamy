@@ -2,11 +2,14 @@ package com.zeph7.tictactoe
 
 import android.content.Intent
 import android.os.Bundle
+import android.support.v7.app.AlertDialog
 import android.util.Log
 import android.view.Window
 import android.view.WindowManager
 import android.view.animation.AnimationUtils
 import android.support.v7.app.AppCompatActivity
+import android.text.InputType
+import android.widget.EditText
 import io.socket.client.Socket
 import kotlinx.android.synthetic.main.activity_third.*
 import org.json.JSONObject
@@ -18,8 +21,8 @@ class ThirdActivity : AppCompatActivity() {
     private var playerSymbol = "X" // Default symbol, will be set by server
     private var gameId: String = "" // Add gameId to keep track of the game
     private var isMultiplayer = false // Flag to check if the game is multiplayer
-    private var chance = "X"
-
+    private var gameCreated = false // Flag to ensure single game creation
+    private var opponentId = "" // Store the opponent's ID
     companion object {
         const val TAG = "ThirdActivity"
     }
@@ -35,43 +38,78 @@ class ThirdActivity : AppCompatActivity() {
 
         // Initialize SocketManager
         socketManager = SocketManager.getInstance()
+        Log.d(TAG, "SocketManager instance acquired")
 
         // Check if the game is in multiplayer mode
         isMultiplayer = intent.getBooleanExtra("isMultiplayer", false)
-        gameId = intent.getStringExtra("gameId") ?: ""
+        gameId = intent.getStringExtra("gameId").orEmpty()
         Log.d(TAG, "isMultiplayer: $isMultiplayer, gameId: $gameId")
 
         if (isMultiplayer) {
             setupSocketEvents()
 
-            // Notify backend of multiplayer mode
-            socketManager.socket.on(Socket.EVENT_CONNECT) {
-                if (gameId.isEmpty()) {
-                    // If gameId is empty, create a new game
-                    val userId = socketManager.getUserId()
-                    if (userId != null) {
-                        val data = JSONObject().apply {
-                            put("mode", "multi")
-                            put("userId", userId)
-                        }
-                        Log.d(TAG, "Emitting createGame event: $data")
-                        socketManager.socket.emit("createGame", data)
-                    } else {
-                        Log.e(TAG, "Socket ID is null, cannot emit createGame event")
-                    }
+            // If gameId exists, join the game instead of creating a new one
+            if (gameId.isNotEmpty()) {
+                joinExistingGame()
+            } else {
+                // Notify backend of multiplayer mode after ensuring socket is connected
+                if (socketManager.socket.connected()) {
+                    emitInitializeAndCreateGame()
                 } else {
-                    // Join an existing game
-                    val data = JSONObject().apply {
-                        put("gameId", gameId)
+                    socketManager.socket.on(Socket.EVENT_CONNECT) {
+                        runOnUiThread {
+                            emitInitializeAndCreateGame()
+                        }
                     }
-                    Log.d(TAG, "Emitting joinGame event: $data")
-                    socketManager.socket.emit("joinGame", data)
                 }
             }
         }
 
         // Set click listeners for buttons
         setButtonClickListeners()
+
+        buttonReset.setOnClickListener {
+            startActivity(Intent(this@ThirdActivity, ThirdActivity::class.java))
+        }
+
+        // back ImageView
+        imageViewBack.setOnClickListener {
+            startActivity(Intent(this@ThirdActivity, MainActivity::class.java))
+        }
+
+        // quit ImageView
+        imageViewQuit.setOnClickListener {
+            finish()
+            moveTaskToBack(true) //to quit app
+        }
+    }
+
+    private fun joinExistingGame() {
+        val joinData = JSONObject().apply {
+            put("gameId", gameId)
+            put("userId", socketManager.socket.id())
+        }
+        Log.d(TAG, "Joining existing game with id: $gameId")
+        socketManager.socket.emit("joinGame", joinData)
+    }
+
+    private fun emitInitializeAndCreateGame() {
+        if (gameCreated) {
+            return
+        }
+        gameCreated = true
+        val initializeData = JSONObject().apply {
+            put("mode", "multi")
+        }
+        Log.d(TAG, "Emitting initialize event: $initializeData")
+        socketManager.socket.emit("initialize", initializeData)
+
+        val data = JSONObject().apply {
+            put("mode", "multi")
+            put("userId", socketManager.socket.id()) // Use the public getter method for the socket ID
+        }
+        Log.d(TAG, "Emitting createGame event: $data")
+        socketManager.socket.emit("createGame", data)
     }
 
     private fun setButtonClickListeners() {
@@ -90,8 +128,18 @@ class ThirdActivity : AppCompatActivity() {
             runOnUiThread {
                 board[position] = symbol
                 displaySymbolOnButton(position, symbol)
-                isPlayerTurn = symbol != playerSymbol // Update the turn status
+                isPlayerTurn = (symbol != playerSymbol) // Update turn status
                 Log.d(TAG, "Player turn updated to: $isPlayerTurn after receiving gameUpdate")
+            }
+        }
+
+        socketManager.socket.on("turnUpdate") { args ->
+            val data = args[0] as JSONObject
+            val nextTurn = data.getString("nextTurn")
+            Log.d(TAG, "Received turnUpdate: nextTurn $nextTurn")
+            runOnUiThread {
+                isPlayerTurn = (playerSymbol == nextTurn)
+                Log.d(TAG, "Player turn updated to: $isPlayerTurn after receiving turnUpdate")
             }
         }
 
@@ -100,14 +148,24 @@ class ThirdActivity : AppCompatActivity() {
             val winner = data.getString("winner")
             Log.d(TAG, "Game over, winner: $winner")
             runOnUiThread {
-                startActivity(Intent(this@ThirdActivity, WonActivity::class.java).putExtra("player", winner.ifEmpty { "Tie" }))
+                startActivity(Intent(this@ThirdActivity, WonActivity::class.java).putExtra("winner", winner.ifEmpty { "Tie" }))
             }
         }
 
         socketManager.socket.on("gameCreated") { args ->
             val data = args[0] as JSONObject
             gameId = data.getString("id")
-            Log.d(TAG, "Game created with id: $gameId")
+            opponentId = data.getString("opponentId") // Get opponent ID
+            Log.d(TAG, "Game created with id: $gameId, opponentId: $opponentId")
+            runOnUiThread {
+                if (playerSymbol == "X") {
+                    try {
+                        showInviteOthersDialog(opponentId)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error showing invite others dialog: ${e.message}")
+                    }
+                }
+            }
         }
 
         socketManager.socket.on("playerAssigned") { args ->
@@ -122,21 +180,75 @@ class ThirdActivity : AppCompatActivity() {
             gameId = data.getString("id")
             val player1Id = data.getString("player1Id")
             val player2Id = data.getString("player2Id")
-            Log.d(TAG, "Game started with id: $gameId")
-            val userId = socketManager.getUserId()
+            val userId = socketManager.socket.id()
+            Log.d(TAG, "Game started with id: $gameId, player1Id: $player1Id, player2Id: $player2Id, userId: $userId")
             if (userId == player1Id) {
                 playerSymbol = "X"
                 isPlayerTurn = true
+                Log.d(TAG, "Player 1 starts: isPlayerTurn = true")
             } else if (userId == player2Id) {
                 playerSymbol = "O"
                 isPlayerTurn = false
+                Log.d(TAG, "Player 2 starts: isPlayerTurn = false")
             }
             Log.d(TAG, "Player symbol: $playerSymbol, isPlayerTurn: $isPlayerTurn")
         }
     }
 
+    private fun showInviteOthersDialog(opponentId: String) {
+        try {
+            if (opponentId.isNotEmpty()) {
+                sendInvitation(opponentId)
+            } else {
+                // Otherwise, show the dialog to enter the opponent's ID
+                AlertDialog.Builder(this)
+                    .setTitle("Invite Others")
+                    .setMessage("Do you want to invite others to join the game?")
+                    .setPositiveButton("Yes") { _, _ ->
+                        showEnterOpponentIdDialog(opponentId)
+                    }
+                    .setNegativeButton("No", null)
+                    .show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing invite others dialog: ${e.message}")
+        }
+    }
+
+    private fun showEnterOpponentIdDialog(receivedOpponentId: String) {
+        try {
+            val input = EditText(this)
+            input.inputType = InputType.TYPE_CLASS_TEXT
+
+            AlertDialog.Builder(this)
+                .setTitle("Enter Opponent ID")
+                .setMessage("Please enter the opponent's ID: $receivedOpponentId")
+                .setView(input)
+                .setPositiveButton("Send Invitation") { _, _ ->
+                    val opponentId = input.text.toString()
+                    sendInvitation(opponentId)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing enter opponent ID dialog: ${e.message}")
+        }
+    }
+
+    private fun sendInvitation(opponentId: String) {
+        val invitationData = JSONObject().apply {
+            put("gameId", gameId)
+            put("opponentId", opponentId)
+            put("senderId", socketManager.socket.id())
+        }
+        socketManager.socket.emit("sendInvitation", invitationData)
+        Log.d(TAG, "Invitation sent: $invitationData")
+    }
+
+
     private fun onPlayerMove(position: Int) {
         Log.d(TAG, "Button $position clicked")
+        Log.d(TAG, "Current player turn status: $isPlayerTurn")
 
         if (board[position].isEmpty() && isPlayerTurn) {
             Log.d(TAG, "It's player turn and the board position is empty")
@@ -150,11 +262,6 @@ class ThirdActivity : AppCompatActivity() {
             Log.d(TAG, "Conditions not met for emitting playerMove: isMultiplayer=$isMultiplayer, board[position]=${board[position]}, isPlayerTurn=$isPlayerTurn")
             return // Early return if conditions are not met
         }
-
-        if (!isMultiplayer) {
-            // Handle local game turn switch
-            chance = if (chance == "X") "O" else "X"
-        }
     }
 
     private fun emitPlayerMove(position: Int) {
@@ -162,7 +269,7 @@ class ThirdActivity : AppCompatActivity() {
             put("position", position)
             put("symbol", playerSymbol)
             put("gameId", gameId) // Ensure gameId is sent with the move
-            put("userId", socketManager.getUserId()) // Add userId to the move data
+            put("userId", socketManager.socket.id()) // Use the public getter method for the socket ID
         }
         Log.d(TAG, "Emitting playerMove: position $position, symbol $playerSymbol, gameId $gameId")
         socketManager.socket.emit("playerMove", data)
@@ -234,8 +341,7 @@ class ThirdActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isMultiplayer) {
-            socketManager.disconnect()
-        }
+        socketManager.disconnect()
+        Log.d(TAG, "SocketManager disconnected")
     }
 }

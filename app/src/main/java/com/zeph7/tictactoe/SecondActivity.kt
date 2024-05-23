@@ -25,8 +25,7 @@ class SecondActivity : AppCompatActivity() {
         setContentView(R.layout.activity_second)
 
         // Initialize SocketManager
-        socketManager = SocketManager()
-        socketManager.initSocket()
+        socketManager = SocketManager.getInstance()
 
         setupSocketEvents()
 

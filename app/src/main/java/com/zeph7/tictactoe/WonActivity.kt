@@ -20,32 +20,35 @@ class WonActivity : AppCompatActivity() {
         window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN)
         setContentView(R.layout.activity_won)
 
-        // Initialize SocketManager
-        socketManager = SocketManager()
-        socketManager.initSocket()
+        socketManager = SocketManager.getInstance()
 
-        val player = intent.getStringExtra("player")
-        if (player == "Tie") textViewWon.text = "TIE"
-        else textViewWon.text = "$player WON"
+        val winner = intent.getStringExtra("winner")
+        if (winner == "Tie") {
+            textViewWon.text = "TIE"
+        } else if (winner == socketManager.socket.id()) {
+            textViewWon.text = "YOU WON"
+        } else {
+            textViewWon.text = "YOU LOST"
+        }
 
         val anim = AnimationUtils.loadAnimation(applicationContext, R.anim.zoom)
         textViewWon.startAnimation(anim)
 
-        showGameOverModal(player)
+        showGameOverModal(winner)
 
         Handler().postDelayed({
             startActivity(Intent(this@WonActivity, MainActivity::class.java))
         }, 3000)
     }
 
-    private fun showGameOverModal(player: String?) {
+    private fun showGameOverModal(winner: String?) {
         val dialog = Dialog(this)
         dialog.setContentView(R.layout.modal_message)
         dialog.setCancelable(false)
 
-        if (player == "Tie") {
+        if (winner == "Tie") {
             dialog.modalMessage.text = "It's a Tie!"
-        } else if (player == "YOU") {
+        } else if (winner == socketManager.socket.id()) {
             dialog.modalMessage.text = "You Won!"
         } else {
             dialog.modalMessage.text = "You Lost!"
